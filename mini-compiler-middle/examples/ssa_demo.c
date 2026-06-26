@@ -29,12 +29,12 @@ int main(void) {
     int z1 = ir_new_temp(func);
     ir_emit(func, IR_ADD, z1, y, x, NULL);
     ir_emit(func, IR_MOV, y, z1, -1, NULL);
-    ir_emit(func, IR_BR, -1, -1, merge_str);
+    ir_emit(func, IR_BR, -1, -1, -1, merge_str);
 
     int c3 = ir_new_temp(func);
     ir_emit(func, IR_MOV, c3, 3, -1, NULL);
     ir_emit(func, IR_ADD, y, x, c3, NULL);
-    ir_emit(func, IR_BR, -1, -1, merge_str);
+    ir_emit(func, IR_BR, -1, -1, -1, merge_str);
 
     int result = ir_new_temp(func);
     ir_emit(func, IR_ADD, result, x, y, NULL);

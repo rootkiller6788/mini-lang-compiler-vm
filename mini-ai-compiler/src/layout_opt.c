@@ -161,9 +161,11 @@ double layout_cost_estimate(DataLayout producer, DataLayout consumer,
 
 DataLayout layout_propagate(DataLayout input, GraphOpType op, bool gpu)
 {
+    (void)input;
     if (gpu) {
         switch (op) {
         case GOp_CONV2D:
+            return Layout_NHWC;
         case GOp_MATMUL:
             return Layout_NCHW;
         default:
@@ -172,6 +174,7 @@ DataLayout layout_propagate(DataLayout input, GraphOpType op, bool gpu)
     } else {
         switch (op) {
         case GOp_CONV2D:
+            return Layout_NCHW;
         case GOp_MATMUL:
             return Layout_NCHW;
         default:

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "bytecode.h"
 
 static int32_t emit_push_int(ByteCode* bc, int64_t value) {

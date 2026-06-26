@@ -138,7 +138,7 @@ const char *mlir_type_name(MLIRType type)
 
 static void mlir_print_value(MLIRValue *v)
 {
-    printf("%%s : %s", v->name, mlir_type_name(v->type));
+    printf("  %%%s : %s\n", v->name, mlir_type_name(v->type));
 }
 
 static void mlir_print_attr(MLIRAttribute *a)
@@ -159,8 +159,9 @@ void mlir_print_op(MLIROp *op)
     int i;
     if (op->result_count > 0) {
         printf("  %s = ", op->results[0].name);
+        mlir_print_value(&op->results[0]);
     }
-    printf("%s.%s", op->dialect, op->name);
+    printf("  %s.%s", op->dialect, op->name);
     for (i = 0; i < op->operand_count; i++) {
         printf(" %s", op->operands[i].name);
     }

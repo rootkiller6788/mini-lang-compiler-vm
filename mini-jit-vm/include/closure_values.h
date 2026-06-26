@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "bytecode.h"
 #include "gc.h"
 
 #define MAX_GLOBALS    128

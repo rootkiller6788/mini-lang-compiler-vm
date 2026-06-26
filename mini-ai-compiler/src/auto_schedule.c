@@ -259,8 +259,10 @@ TunerMetrics tuner_evaluate_candidate(TuneTask *task, ScheduleSpace *schedule)
 
 static int tuner_compare_metrics(const void *a, const void *b)
 {
-    int idx_a = *(const int *)a;
-    int idx_b = *(const int *)b;
+    double us_a = *(const double *)a;
+    double us_b = *(const double *)b;
+    if (us_a < us_b) return -1;
+    if (us_a > us_b) return 1;
     return 0;
 }
 

@@ -194,3 +194,252 @@ void df_print_result(const DataflowResult* result, int num_blocks, FILE* out) {
         fprintf(out, "\n");
     }
 }
+
+/*
+ * Available Expressions Analysis (Forward, Must).
+ *
+ * Determines which expressions have been computed and their
+ * operands have not been modified since.
+ *
+ * Lattice: Power set of expressions (bitvector).
+ * Meet: Intersection (expression is available only if
+ *       available on ALL incoming paths).
+ * Direction: Forward.
+ *
+ * Transfer function:
+ *   OUT[B] = GEN[B] U (IN[B] - KILL[B])
+ *
+ * GEN[B]: Expressions computed in B whose operands are not
+ *         killed later in B.
+ * KILL[B]: Expressions whose operands are redefined in B.
+ *
+ * L5 (Algorithm): Available expressions analysis enables
+ * Common Subexpression Elimination (CSE) and redundant
+ * expression elimination.
+ *
+ * Reference: Dragon Book §9.2.4, Cooper & Torczon §9.2
+ */
+void df_available_exprs(const IRFunction* func, IRBasicBlock blocks[],
+                         int num_blocks, DataflowResult* result) {
+    if (!func || !blocks || !result) return;
+    memset(result, 0, sizeof(DataflowResult));
+
+    /*
+     * For available expressions (must-forward), initialize
+     * OUT[b] = TOP (all 1's) for all blocks except entry,
+     * and IN[entry] = BOTTOM (all 0's).
+     *
+     * We represent expressions as bit i where instruction i
+     * defines a new expression.
+     */
+    for (int b = 0; b < num_blocks; b++) {
+        for (int w = 0; w < BITVECTOR_WORDS; w++) {
+            result->OUT[b].bits[w] = ~0u; /* TOP = all expressions available */
+        }
+    }
+
+    /*
+     * IN[entry] = BOTTOM = empty set (no expressions available at entry)
+     */
+    bv_init(&result->IN[0]);
+
+    bool changed = true;
+    int iter = 0;
+    while (changed && iter < 1000) {
+        changed = false;
+        iter++;
+
+        for (int b = 0; b < num_blocks; b++) {
+            /*
+             * IN[B] = ∩ OUT[P] for P in pred(B)
+             */
+            if (b == 0) {
+                bv_init(&result->IN[b]); /* Entry has empty IN */
+            } else if (blocks[b].num_pred > 0) {
+                bv_copy(&result->IN[b], &result->OUT[blocks[b].predecessors[0]]);
+                for (int p = 1; p < blocks[b].num_pred; p++) {
+                    bv_intersect(&result->IN[b],
+                                 &result->OUT[blocks[b].predecessors[p]]);
+                }
+            } else {
+                bv_init(&result->IN[b]); /* Unreachable */
+            }
+
+            /*
+             * Compute GEN[B] and KILL[B].
+             * GEN: expressions computed in B (instruction op + operands)
+             * KILL: expressions whose operands are redefined in B
+             */
+            BitVector GEN, KILL;
+            bv_init(&GEN);
+            bv_init(&KILL);
+
+            /*
+             * Build expression hash mapping:
+             * expression_hash[i] = unique ID for the expression
+             * computed by instruction i (based on op, src1, src2).
+             */
+            for (int i = 0; i < blocks[b].num_inst; i++) {
+                int inst_idx = blocks[b].inst_indices[i];
+                const IRInst* inst = &func->instructions[inst_idx];
+
+                /*
+                 * Only arithmetic and move instructions produce
+                 * available expressions.
+                 */
+                if (inst->op == IR_ADD || inst->op == IR_SUB ||
+                    inst->op == IR_MUL || inst->op == IR_DIV ||
+                    inst->op == IR_MOV) {
+                    if (inst->dest >= 0) {
+                        bv_set(&GEN, inst_idx);
+                    }
+                }
+
+                /*
+                 * KILL: any expression whose operands include
+                 * inst->dest is killed by this redefinition.
+                 */
+                if (inst->dest >= 0) {
+                    for (int j = 0; j < func->num_inst; j++) {
+                        const IRInst* other = &func->instructions[j];
+                        if (other->src1 == inst->dest ||
+                            other->src2 == inst->dest) {
+                            bv_set(&KILL, j);
+                        }
+                    }
+                }
+            }
+
+            /*
+             * OUT[B] = GEN[B] U (IN[B] - KILL[B])
+             */
+            BitVector old_out;
+            bv_copy(&old_out, &result->OUT[b]);
+
+            bv_copy(&result->OUT[b], &result->IN[b]);
+            /* Subtract KILL: clear bits that are killed */
+            for (int k = 0; k < BITVECTOR_WORDS; k++) {
+                result->OUT[b].bits[k] &= ~KILL.bits[k];
+            }
+            bv_union(&result->OUT[b], &GEN);
+
+            if (!bv_equals(&old_out, &result->OUT[b])) {
+                changed = true;
+            }
+        }
+    }
+}
+
+/*
+ * Very Busy Expressions Analysis (Backward, Must).
+ *
+ * An expression is very busy at a point if it will be evaluated
+ * along ALL paths from that point before any of its operands
+ * are redefined.
+ *
+ * Direction: Backward
+ * Meet: Intersection (must be evaluated on all paths)
+ *
+ * Transfer function:
+ *   IN[B] = USE[B] U (OUT[B] - DEF[B])
+ *
+ * L5 (Algorithm): Very busy expressions analysis enables
+ * code hoisting — moving computations earlier to reduce
+ * code duplication.
+ *
+ * Reference: Dragon Book §9.2.3
+ */
+void df_very_busy_exprs(const IRFunction* func, IRBasicBlock blocks[],
+                         int num_blocks, DataflowResult* result) {
+    if (!func || !blocks || !result) return;
+    memset(result, 0, sizeof(DataflowResult));
+
+    /*
+     * Initialize OUT[exit] = BOTTOM (empty set).
+     * OUT[other blocks] = TOP (all expressions very busy).
+     */
+    for (int b = 0; b < num_blocks; b++) {
+        for (int w = 0; w < BITVECTOR_WORDS; w++) {
+            result->OUT[b].bits[w] = ~0u;
+        }
+    }
+    if (num_blocks > 0) {
+        bv_init(&result->OUT[num_blocks - 1]); /* Exit block */
+    }
+
+    bool changed = true;
+    int iter = 0;
+    while (changed && iter < 1000) {
+        changed = false;
+        iter++;
+
+        for (int b = 0; b < num_blocks; b++) {
+            /*
+             * OUT[B] = ∩ IN[S] for S in succ(B)
+             */
+            if (blocks[b].num_succ > 0) {
+                bv_copy(&result->OUT[b],
+                        &result->IN[blocks[b].successors[0]]);
+                for (int s = 1; s < blocks[b].num_succ; s++) {
+                    bv_intersect(&result->OUT[b],
+                                 &result->IN[blocks[b].successors[s]]);
+                }
+            } else {
+                bv_init(&result->OUT[b]); /* No successors */
+            }
+
+            /*
+             * USE[B]: expressions used in B before any definition
+             * DEF[B]: operands defined in B before any use
+             */
+            BitVector USE, DEF;
+            bv_init(&USE);
+            bv_init(&DEF);
+
+            bool def_seen[MAX_TEMP_REGS];
+            memset(def_seen, 0, sizeof(def_seen));
+
+            for (int i = 0; i < blocks[b].num_inst; i++) {
+                int inst_idx = blocks[b].inst_indices[i];
+                const IRInst* inst = &func->instructions[inst_idx];
+
+                if (inst->op == IR_ADD || inst->op == IR_SUB ||
+                    inst->op == IR_MUL || inst->op == IR_DIV) {
+                    /*
+                     * This expression's operands must not be
+                     * redefined before this point for the
+                     * expression to be used.
+                     */
+                    if (!def_seen[inst->src1] && !def_seen[inst->src2]
+                        && inst->src1 >= 0 && inst->src2 >= 0) {
+                        bv_set(&USE, inst_idx);
+                    }
+                }
+
+                /*
+                 * Track definitions.
+                 */
+                if (inst->dest >= 0 && inst->dest < MAX_TEMP_REGS) {
+                    def_seen[inst->dest] = true;
+                    bv_set(&DEF, inst->dest);
+                }
+            }
+
+            /*
+             * IN[B] = USE[B] U (OUT[B] - DEF[B])
+             */
+            BitVector old_in;
+            bv_copy(&old_in, &result->IN[b]);
+
+            bv_copy(&result->IN[b], &result->OUT[b]);
+            for (int d = 0; d < BITVECTOR_WORDS; d++) {
+                result->IN[b].bits[d] &= ~DEF.bits[d];
+            }
+            bv_union(&result->IN[b], &USE);
+
+            if (!bv_equals(&old_in, &result->IN[b])) {
+                changed = true;
+            }
+        }
+    }
+}

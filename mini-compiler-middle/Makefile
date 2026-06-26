@@ -5,15 +5,15 @@ OUTDIR = bin
 SRCDIR = src
 EXAMPLEDIR = examples
 
-_DEPS = ir.h ssa.h dataflow.h optimizer.h cfg.h
-_OBJS = ir.o ssa.o dataflow.o optimizer.o cfg.o
+_DEPS = ir.h ssa.h dataflow.h optimizer.h cfg.h regalloc.h backend.h loop_analysis.h
+_OBJS = ir.o ssa.o dataflow.o optimizer.o cfg.o regalloc.o backend.o loop_analysis.o
 _EXAMPLES = ir_demo ssa_demo opt_demo
 
 DEPS = $(patsubst %,include/%,$(_DEPS))
 OBJS = $(patsubst %,$(SRCDIR)/%,$(_OBJS))
 TARGETS = $(patsubst %,$(OUTDIR)/%,$(_EXAMPLES))
 
-.PHONY: all clean examples
+.PHONY: all clean examples test
 
 all: $(OUTDIR) $(TARGETS)
 
@@ -43,6 +43,19 @@ $(SRCDIR)/optimizer.o: $(SRCDIR)/optimizer.c include/optimizer.h include/ir.h
 
 $(SRCDIR)/cfg.o: $(SRCDIR)/cfg.c include/cfg.h include/ir.h
 	$(CC) $(CFLAGS) -c -o $@ $(SRCDIR)/cfg.c
+
+$(SRCDIR)/regalloc.o: $(SRCDIR)/regalloc.c include/regalloc.h include/ir.h include/dataflow.h
+	$(CC) $(CFLAGS) -c -o $@ $(SRCDIR)/regalloc.c
+
+$(SRCDIR)/backend.o: $(SRCDIR)/backend.c include/backend.h include/ir.h
+	$(CC) $(CFLAGS) -c -o $@ $(SRCDIR)/backend.c
+
+$(SRCDIR)/loop_analysis.o: $(SRCDIR)/loop_analysis.c include/loop_analysis.h include/ir.h include/cfg.h
+	$(CC) $(CFLAGS) -c -o $@ $(SRCDIR)/loop_analysis.c
+
+test: $(OBJS)
+	$(CC) $(CFLAGS) -o $(OUTDIR)/run_tests test.c $(OBJS) $(LDFLAGS)
+	$(OUTDIR)/run_tests
 
 clean:
 	rm -f $(OUTDIR)/*

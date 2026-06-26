@@ -37,4 +37,13 @@ void dep_reset_visited(DepGraph *dg);
 bool dep_dfs_topo(DepGraph *dg, int node_idx, int *order, int *order_len);
 bool dep_dfs_cycle(const DepGraph *dg, int node_idx);
 
+
+/* L5: Tarjan's SCC Algorithm */
+int  dep_find_sccs(DepGraph *dg, int scc_map[DEP_MAX_NODES]);
+void dep_print_sccs(const DepGraph *dg, const int *scc_map, int num_sccs);
+
+/* L8: Dominator Tree */
+void dep_compute_dominators(DepGraph *dg, int dominators[DEP_MAX_NODES]);
+void dep_print_dominators(const DepGraph *dg, const int *dominators);
+
 #endif

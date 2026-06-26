@@ -267,3 +267,169 @@ void dep_print_schedule(const DepGraph *dg, const int *schedule_order,
         printf("\n");
     }
 }
+
+/* ========================================================================
+ * L5: Tarjan's Strongly Connected Components (SCC) Algorithm
+ *
+ * Tarjan, R.E. "Depth-First Search and Linear Graph Algorithms"
+ * SIAM Journal on Computing, Vol.1 No.2, 1972.
+ *
+ * O(V+E) algorithm to find all maximal strongly connected subgraphs.
+ * In build systems: identifies irreducible circular dependencies.
+ *
+ * Course: MIT 6.006, CMU 15-451
+ * ======================================================================== */
+
+typedef struct {
+    int  index;
+    int  lowlink;
+    bool on_stack;
+} TarjanState;
+
+static void tarjan_dfs(DepGraph *dg, int v_idx, int *index_counter,
+                        int *stack, int *stack_top,
+                        TarjanState *state,
+                        int scc_map[DEP_MAX_NODES],
+                        int *scc_id) {
+    state[v_idx].index = *index_counter;
+    state[v_idx].lowlink = *index_counter;
+    (*index_counter)++;
+    stack[(*stack_top)++] = v_idx;
+    state[v_idx].on_stack = true;
+
+    DepNode *node = &dg->nodes[v_idx];
+    for (int i = 0; i < node->num_deps; i++) {
+        int w_idx = node->deps[i];
+        if (state[w_idx].index < 0) {
+            tarjan_dfs(dg, w_idx, index_counter, stack, stack_top,
+                       state, scc_map, scc_id);
+            if (state[w_idx].lowlink < state[v_idx].lowlink)
+                state[v_idx].lowlink = state[w_idx].lowlink;
+        } else if (state[w_idx].on_stack) {
+            if (state[w_idx].index < state[v_idx].lowlink)
+                state[v_idx].lowlink = state[w_idx].index;
+        }
+    }
+
+    if (state[v_idx].lowlink == state[v_idx].index) {
+        int w;
+        do {
+            w = stack[--(*stack_top)];
+            state[w].on_stack = false;
+            scc_map[w] = *scc_id;
+        } while (w != v_idx);
+        (*scc_id)++;
+    }
+}
+
+int dep_find_sccs(DepGraph *dg, int scc_map[DEP_MAX_NODES]) {
+    TarjanState state[DEP_MAX_NODES];
+    for (int i = 0; i < dg->num_nodes; i++) {
+        state[i].index = -1;
+        state[i].lowlink = -1;
+        state[i].on_stack = false;
+    }
+
+    int stack[DEP_MAX_NODES];
+    int stack_top = 0;
+    int index_counter = 0;
+    int scc_id = 0;
+
+    for (int i = 0; i < dg->num_nodes; i++) {
+        if (state[i].index < 0) {
+            tarjan_dfs(dg, i, &index_counter, stack, &stack_top,
+                       state, scc_map, &scc_id);
+        }
+    }
+    return scc_id;
+}
+
+void dep_print_sccs(const DepGraph *dg, const int *scc_map, int num_sccs) {
+    printf("\n=== Strongly Connected Components (%d) ===\n", num_sccs);
+    for (int s = 0; s < num_sccs; s++) {
+        printf("  SCC %d: [", s);
+        bool first = true;
+        for (int i = 0; i < dg->num_nodes; i++) {
+            if (scc_map[i] == s) {
+                printf("%s%s", first ? "" : ", ", dg->nodes[i].name);
+                first = false;
+            }
+        }
+        printf("]\n");
+    }
+    printf("==========================================\n");
+}
+
+/* ========================================================================
+ * L8: Dominator Tree Construction (Cooper-Harvey-Kennedy, 2001)
+ *
+ * "A Simple, Fast Dominance Algorithm" - SPE 2001
+ *
+ * In a DAG, node d dominates node v if every path from root to v
+ * passes through d. The dominator tree reveals which build steps
+ * force downstream rebuilds - essential for change impact analysis.
+ * ======================================================================== */
+
+void dep_compute_dominators(DepGraph *dg, int dominators[DEP_MAX_NODES]) {
+    int n = dg->num_nodes;
+    if (n == 0) return;
+
+    for (int i = 0; i < n; i++)
+        dominators[i] = (i == 0) ? 0 : -1;
+
+    int predecessors[DEP_MAX_NODES][DEP_MAX_NODES];
+    int num_pred[DEP_MAX_NODES];
+    memset(num_pred, 0, sizeof(int) * n);
+
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < dg->nodes[i].num_deps; j++) {
+            int succ = dg->nodes[i].deps[j];
+            if (num_pred[succ] < DEP_MAX_NODES)
+                predecessors[succ][num_pred[succ]++] = i;
+        }
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int v = 1; v < n; v++) {
+            if (num_pred[v] == 0) continue;
+            int new_idom = -1;
+            for (int p = 0; p < num_pred[v]; p++) {
+                int pred = predecessors[v][p];
+                if (dominators[pred] != -1) {
+                    if (new_idom < 0) {
+                        new_idom = pred;
+                    } else {
+                        int a = new_idom, b = pred;
+                        bool visited_a[DEP_MAX_NODES] = {false};
+                        while (a >= 0 && a < n) {
+                            visited_a[a] = true;
+                            if (dominators[a] == a || dominators[a] < 0) break;
+                            a = dominators[a];
+                        }
+                        while (b >= 0 && b < n && !visited_a[b]) {
+                            if (dominators[b] == b || dominators[b] < 0) { b = 0; break; }
+                            b = dominators[b];
+                        }
+                        if (b >= 0 && b < n && visited_a[b]) new_idom = b;
+                    }
+                }
+            }
+            if (new_idom >= 0 && dominators[v] != new_idom) {
+                dominators[v] = new_idom;
+                changed = true;
+            }
+        }
+    }
+}
+
+void dep_print_dominators(const DepGraph *dg, const int *dominators) {
+    printf("\n=== Dominator Tree ===\n");
+    for (int i = 0; i < dg->num_nodes; i++) {
+        const char *dom_name = (dominators[i] >= 0 && dominators[i] < dg->num_nodes)
+                               ? dg->nodes[dominators[i]].name : "?";
+        printf("  idom(%s) = %s\n", dg->nodes[i].name, dom_name);
+    }
+    printf("========================\n");
+}

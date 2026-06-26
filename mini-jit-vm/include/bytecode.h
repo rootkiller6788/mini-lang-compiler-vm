@@ -53,7 +53,8 @@ typedef struct {
 } ByteCode;
 
 typedef struct {
-    int64_t    stack[VM_STACK_SIZE];
+    int64_t    stack[VM_STACK_SIZE];   /* operand stack */
+    int64_t    locals[VM_STACK_SIZE];  /* local variable slots (separate) */
     int32_t    sp;
     int32_t    ip;
     int32_t    frame_ptr;

@@ -42,7 +42,7 @@ int main(void) {
     ir_emit(func, IR_ADD, i2, i, one, NULL);
     ir_emit(func, IR_MOV, i, i2, -1, NULL);
 
-    ir_emit(func, IR_BR, -1, -1, loop_str);
+    ir_emit(func, IR_BR, -1, -1, -1, loop_str);
 
     ir_emit(func, IR_RET, b, -1, -1, NULL);
 

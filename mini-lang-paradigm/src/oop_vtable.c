@@ -77,30 +77,16 @@ Object* object_create(const Class* cls) {
 void* object_call_virtual(Object* obj, const char* method_name, void** args) {
     int idx = class_method_index(obj->class, method_name);
     if (idx < 0) return NULL;
-    Method* m = NULL;
-    const Class* current = obj->class;
-    while (current) {
-        if (idx < current->vtable_size) {
-            const Method* candidate = &current->vtable[idx];
-            bool found = false;
-            const Class* check = obj->class;
-            while (check) {
-                for (int i = 0; i < check->vtable_size; i++) {
-                    if (strcmp(check->vtable[i].name, method_name) == 0) {
-                        m = (Method*)&check->vtable[i];
-                        found = true;
-                        break;
-                    }
-                }
-                if (found) break;
-                check = check->parent_class;
+    const Class* check = obj->class;
+    while (check) {
+        for (int i = 0; i < check->vtable_size; i++) {
+            if (strcmp(check->vtable[i].name, method_name) == 0) {
+                return check->vtable[i].fn_ptr(obj, args);
             }
-            if (found) break;
         }
-        current = current->parent_class;
+        check = check->parent_class;
     }
-    if (!m) return NULL;
-    return m->fn_ptr(obj, args);
+    return NULL;
 }
 
 void object_set_field(Object* obj, int index, void* value) {

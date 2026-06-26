@@ -2,6 +2,7 @@
 #define SYMTAB_H
 
 #include <stdbool.h>
+#include <stdio.h>
 
 #define SYMTAB_HASH_SIZE 256
 #define SYMBOL_NAME_MAX 128
@@ -35,5 +36,27 @@ Symbol *symtab_lookup(SymTab *tab, const char *name);
 Symbol *symtab_lookup_current(SymTab *tab, const char *name);
 void symtab_print(SymTab *tab);
 void symtab_free(SymTab *tab);
+
+/* ─── Symbol Iterator (L3: Engineering Structure) ─────────────────── */
+
+typedef struct {
+    const SymTab *tab;
+    int bucket;
+    Symbol *current;
+} SymTabIter;
+
+void symtab_iter_init(SymTabIter *iter, const SymTab *tab);
+bool symtab_iter_next(SymTabIter *iter, Symbol **out);
+
+/* ─── Statistics & Visualization ──────────────────────────────────── */
+
+/* Count symbols in current scope and all ancestors. */
+int symtab_count_all(const SymTab *tab);
+
+/* Count symbols in current scope only. */
+int symtab_count_current(const SymTab *tab);
+
+/* Export scope chain as Graphviz DOT (for visualization). */
+void symtab_export_dot(const SymTab *tab, FILE *fp);
 
 #endif

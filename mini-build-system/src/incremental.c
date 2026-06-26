@@ -44,17 +44,37 @@ bool cache_lookup(BuildCache *bc, const char *key,
 
 void cache_store(BuildCache *bc, const char *key,
                  const char (*out_files)[CACHE_PATH_LEN], int num_out) {
-    if (bc->num_entries >= CACHE_MAX_ENTRIES) {
-        cache_prune(bc);
-    }
-
-    int idx = bc->num_entries;
+    /* Check if key already exists */
+    int idx = -1;
     for (int i = 0; i < bc->num_entries; i++) {
         if (bc->entries[i].valid && strcmp(bc->entries[i].key, key) == 0) {
             idx = i;
             break;
         }
     }
+
+    /* If not found, find an empty or invalidated slot */
+    if (idx < 0) {
+        for (int i = 0; i < CACHE_MAX_ENTRIES; i++) {
+            if (!bc->entries[i].valid) {
+                idx = i;
+                break;
+            }
+        }
+    }
+
+    /* If cache is full, evict oldest and reuse its slot */
+    if (idx < 0) {
+        cache_prune(bc);
+        for (int i = 0; i < CACHE_MAX_ENTRIES; i++) {
+            if (!bc->entries[i].valid) {
+                idx = i;
+                break;
+            }
+        }
+    }
+
+    if (idx < 0) return;  /* shouldn't happen */
 
     strncpy(bc->entries[idx].key, key, CACHE_KEY_LEN - 1);
     bc->entries[idx].num_outputs = num_out;
@@ -65,8 +85,8 @@ void cache_store(BuildCache *bc, const char *key,
     bc->entries[idx].timestamp = time(NULL);
     bc->entries[idx].valid = true;
 
-    if (idx == bc->num_entries)
-        bc->num_entries++;
+    if (idx >= bc->num_entries)
+        bc->num_entries = idx + 1;
 }
 
 void cache_invalidate(BuildCache *bc, const char *key) {

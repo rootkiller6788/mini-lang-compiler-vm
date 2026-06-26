@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Forward declarations for new statement parsers */
+static ASTNode *parse_for_statement(Parser *parser);
+static ASTNode *parse_do_while_statement(Parser *parser);
+
 static void advance_token(Parser *parser) {
     parser->current_token = parser->peek_token;
     parser->peek_token = lexer_next_token(&parser->lexer);
@@ -315,7 +319,162 @@ ASTNode *parser_parse_statement(Parser *parser) {
         return parser_parse_block(parser);
     }
 
+    /* for-loop: for (expr?; expr?; expr?) statement */
+    if (match(parser, TOK_FOR)) {
+        return parse_for_statement(parser);
+    }
+
+    /* do-while: do statement while (expr); */
+    if (match(parser, TOK_DO)) {
+        return parse_do_while_statement(parser);
+    }
+
+    /* break / continue */
+    if (match(parser, TOK_BREAK)) {
+        ASTNode *node = ast_create_node(AST_BREAK_STMT);
+        node->line = parser->current_token.line;
+        expect(parser, TOK_SEMI, "break statement");
+        return node;
+    }
+
+    if (match(parser, TOK_CONTINUE)) {
+        ASTNode *node = ast_create_node(AST_CONTINUE_STMT);
+        node->line = parser->current_token.line;
+        expect(parser, TOK_SEMI, "continue statement");
+        return node;
+    }
+
     return parse_expr_statement(parser);
+}
+
+/*
+ * Panic-mode error recovery (L5: Algorithm).
+ *
+ * When a syntax error is detected, skip tokens until we find a "safe"
+ * synchronization point: a semicolon, closing brace, or keyword that
+ * typically begins a new statement.
+ *
+ * This is the standard error recovery strategy used in production
+ * compilers (e.g., GCC, Clang). It prevents cascading error messages
+ * from a single mistake.
+ *
+ * Reference: Aho et al. "Compilers" §4.8 "Error Recovery in Predictive Parsing"
+ */
+static void parser_panic_recover(Parser *parser) {
+    fprintf(stderr, "parser: entering panic recovery at line %d\n",
+            parser->current_token.line);
+
+    while (!check(parser, TOK_EOF)) {
+        /* Synchronization tokens: start of new statement or declaration */
+        if (check(parser, TOK_SEMI) || check(parser, TOK_RBRACE) ||
+            check(parser, TOK_INT) || check(parser, TOK_IF) ||
+            check(parser, TOK_WHILE) || check(parser, TOK_RETURN) ||
+            check(parser, TOK_FOR) || check(parser, TOK_DO) ||
+            check(parser, TOK_BREAK) || check(parser, TOK_CONTINUE)) {
+            break;
+        }
+        advance_token(parser);
+    }
+}
+
+/*
+ * For-loop parsing:
+ *   for ( init? ; cond? ; update? ) body
+ *
+ * Init:     variable declaration or expression
+ * Cond:     expression (loop condition)
+ * Update:   expression (increment/decrement)
+ *
+ * L5: For-loop is syntactic sugar for while-loop:
+ *     init; while (cond) { body; update; }
+ *     This desugaring is a fundamental compiler transformation.
+ * L4: Hoare logic for loop invariants: {P ∧ B} S {P} ⊢ {P} while B do S {P ∧ ¬B}
+ *     (Hoare 1969 — Axiomatic Basis for Computer Programming)
+ *
+ * AST representation:
+ *   AST_FOR_STMT
+ *     ├── AST_VAR_DECL | AST_BLOCK  (init)
+ *     ├── AST_BINARY_OP | ...       (cond)
+ *     ├── AST_BLOCK                 (body)
+ *     └── AST_ASSIGN | ...          (update)
+ */
+static ASTNode *parse_for_statement(Parser *parser) {
+    ASTNode *for_node = ast_create_node(AST_FOR_STMT);
+    for_node->line = parser->current_token.line;
+
+    expect(parser, TOK_LPAREN, "for initializer");
+
+    /* Init clause */
+    if (!check(parser, TOK_SEMI)) {
+        if (check(parser, TOK_INT) && check_peek(parser, TOK_IDENT)) {
+            advance_token(parser); /* consume 'int' */
+            Token ident_tok = parser->current_token;
+            advance_token(parser);
+
+            ASTNode *decl = ast_create_node(AST_VAR_DECL);
+            ast_set_name(decl, ident_tok.lexeme);
+            decl->line = ident_tok.line;
+            decl->col = ident_tok.col;
+            ast_add_child(for_node, decl);
+        } else {
+            ast_add_child(for_node, parser_parse_expr(parser));
+        }
+    }
+    expect(parser, TOK_SEMI, "for condition");
+
+    /* Cond clause */
+    if (!check(parser, TOK_SEMI)) {
+        ast_add_child(for_node, parser_parse_expr(parser));
+    } else {
+        /* Empty condition → true (infinite loop) */
+        ASTNode *true_node = ast_create_node(AST_INT_LIT);
+        true_node->int_value = 1;
+        ast_add_child(for_node, true_node);
+    }
+    expect(parser, TOK_SEMI, "for update");
+
+    /* Update clause */
+    if (!check(parser, TOK_RPAREN)) {
+        ast_add_child(for_node, parser_parse_expr(parser));
+    }
+    expect(parser, TOK_RPAREN, "for body");
+
+    /* Body */
+    if (check(parser, TOK_LBRACE)) {
+        ast_add_child(for_node, parser_parse_block(parser));
+    } else {
+        ast_add_child(for_node, parser_parse_statement(parser));
+    }
+
+    return for_node;
+}
+
+/*
+ * Do-while parsing:
+ *   do statement while ( expr ) ;
+ *
+ * L4: Unlike while-loops, do-while always executes the body at least once.
+ *     This is semantically different ({do S while B} ≠ {S; while B do S})
+ *     only when S contains non-monotonic operations (I/O, side effects).
+ */
+static ASTNode *parse_do_while_statement(Parser *parser) {
+    ASTNode *do_node = ast_create_node(AST_DO_WHILE_STMT);
+    do_node->line = parser->current_token.line;
+
+    /* Body */
+    if (check(parser, TOK_LBRACE)) {
+        ast_add_child(do_node, parser_parse_block(parser));
+    } else {
+        ast_add_child(do_node, parser_parse_statement(parser));
+    }
+
+    expect(parser, TOK_WHILE, "do-while condition");
+    expect(parser, TOK_LPAREN, "do-while condition");
+    ast_add_child(do_node, parser_parse_expr(parser));
+    expect(parser, TOK_RPAREN, "do-while condition");
+    expect(parser, TOK_SEMI, "do-while statement");
+
+    return do_node;
 }
 
 ASTNode *parser_parse_function(Parser *parser) {

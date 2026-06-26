@@ -94,6 +94,8 @@ void graph_set_input(ComputeGraph *g, int dims[4], DataType dtype,
     if (g->input_count < GRAPH_MAX_NODES && id >= 0) {
         g->input_ids[g->input_count] = id;
         g->nodes[g->node_count - 1].op_type = GOp_CONV2D;
+        (void)dims;
+        (void)dtype;
         g->input_count++;
     }
 }
@@ -255,30 +257,87 @@ static void graph_infer_pool_shape(TensorNode *input, GraphAttrs *attrs,
 
 void graph_infer_node_shape(GraphNode *node, TensorNode *tensors, int tensor_count)
 {
-    (void)tensors;
+    int i;
     (void)tensor_count;
+
+    /* Find input tensor — use first valid one for shape propagation */
+    TensorNode *input_tensor = NULL;
+    for (i = 0; i < tensor_count; i++) {
+        if (tensors[i].producer_node_id >= 0) {
+            input_tensor = &tensors[i];
+            break;
+        }
+    }
+
     switch (node->op_type) {
     case GOp_CONV2D:
-    case GOp_BATCH_NORM:
-    case GOp_RELU:
-    case GOp_ADD:
-    case GOp_MUL:
-    case GOp_FUSED_CONV_BN_RELU:
+        if (input_tensor) {
+            graph_infer_conv2d_shape(input_tensor, &node->attrs,
+                                     &tensors[tensor_count - 1], 64);
+        }
         break;
-    case GOp_SOFTMAX:
-    case GOp_RESHAPE:
-    case GOp_MATMUL:
-    case GOp_CONCAT:
     case GOp_MAXPOOL2D:
     case GOp_AVGPOOL2D:
+        if (input_tensor) {
+            graph_infer_pool_shape(input_tensor, &node->attrs,
+                                   &tensors[tensor_count - 1]);
+        }
+        break;
+    case GOp_RELU:
+    case GOp_BATCH_NORM:
+    case GOp_SOFTMAX:
+        if (input_tensor) {
+            tensors[tensor_count - 1] = *input_tensor;
+            tensors[tensor_count - 1].producer_node_id = node->id;
+        }
+        break;
+    case GOp_ADD:
+    case GOp_MUL:
+        if (input_tensor) {
+            tensors[tensor_count - 1] = *input_tensor;
+            tensors[tensor_count - 1].producer_node_id = node->id;
+        }
+        break;
+    case GOp_MATMUL:
+        if (input_tensor) {
+            /* Matmul: [M,K] x [K,N] -> [M,N] */
+            TensorNode *out = &tensors[tensor_count - 1];
+            out->ndim = 2;
+            out->dims[0] = input_tensor->dims[0];
+            out->dims[1] = input_tensor->dims[1];
+            out->dtype = input_tensor->dtype;
+            out->producer_node_id = node->id;
+        }
+        break;
+    case GOp_RESHAPE:
     case GOp_TRANSPOSE:
+    case GOp_CONCAT:
+        if (input_tensor) {
+            tensors[tensor_count - 1] = *input_tensor;
+            tensors[tensor_count - 1].producer_node_id = node->id;
+        }
+        break;
+    case GOp_FUSED_CONV_BN_RELU:
+        if (input_tensor) {
+            graph_infer_conv2d_shape(input_tensor, &node->attrs,
+                                     &tensors[tensor_count - 1], 64);
+        }
+        break;
     case GOp_FUSED_MATMUL_BIAS_RELU:
+        if (input_tensor) {
+            tensors[tensor_count - 1] = *input_tensor;
+            tensors[tensor_count - 1].producer_node_id = node->id;
+        }
+        break;
     case GOp_FUSED_ELEMWISE_CHAIN:
+        if (input_tensor) {
+            tensors[tensor_count - 1] = *input_tensor;
+            tensors[tensor_count - 1].producer_node_id = node->id;
+        }
+        break;
     default:
         break;
     }
-    (void)graph_infer_conv2d_shape;
-    (void)graph_infer_pool_shape;
 }
 
 bool graph_infer_shapes(ComputeGraph *g)

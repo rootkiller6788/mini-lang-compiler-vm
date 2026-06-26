@@ -46,6 +46,7 @@ int32_t bc_add_constant(ByteCode* bc, Constant c) {
 
 void vm_init(StackVM* vm, ByteCode* bc) {
     memset(vm->stack, 0, sizeof(vm->stack));
+    memset(vm->locals, 0, sizeof(vm->locals));
     vm->sp        = 0;
     vm->ip        = 0;
     vm->frame_ptr = 0;
@@ -196,7 +197,7 @@ bool vm_execute(StackVM* vm) {
             case OP_LOAD: {
                 int32_t idx = arg + vm->frame_ptr;
                 if (idx >= 0 && idx < VM_STACK_SIZE) {
-                    vm_push(vm, vm->stack[idx]);
+                    vm_push(vm, vm->locals[idx]);
                 }
                 vm->ip++;
                 break;
@@ -205,7 +206,7 @@ bool vm_execute(StackVM* vm) {
                 int64_t val = vm_pop(vm);
                 int32_t idx = arg + vm->frame_ptr;
                 if (idx >= 0 && idx < VM_STACK_SIZE) {
-                    vm->stack[idx] = val;
+                    vm->locals[idx] = val;
                 }
                 vm->ip++;
                 break;

@@ -67,12 +67,11 @@ bool fusion_match_pattern_at(ComputeGraph *g, int start_id,
                              FusionPattern *pattern,
                              int matched_out[FUSION_MAX_PATTERN_OPS])
 {
-    int current_inputs[GRAPH_MAX_INPUTS] = {0};
-    int current_count = 0;
     int p_idx = 0;
     int node_idx;
     int i;
 
+    (void)i;
     for (node_idx = 0; node_idx < g->node_count; node_idx++) {
         if (g->nodes[node_idx].id == start_id) {
             break;

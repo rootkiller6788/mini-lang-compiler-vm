@@ -44,4 +44,9 @@ void     df_constant_propagation(const IRFunction* func, IRBasicBlock blocks[], 
                                  int* value_table);
 void     df_print_result(const DataflowResult* result, int num_blocks, FILE* out);
 
+void     df_available_exprs(const IRFunction* func, IRBasicBlock blocks[],
+                             int num_blocks, DataflowResult* result);
+void     df_very_busy_exprs(const IRFunction* func, IRBasicBlock blocks[],
+                              int num_blocks, DataflowResult* result);
+
 #endif

@@ -29,10 +29,10 @@ int main(void) {
     ir_emit(func, IR_MOV, c10, 10, -1, NULL);
 
     int add10 = ir_new_temp(func);
-    ir_emit(func, IR_ADD, add10, c10, 0, -1, NULL);
+    ir_emit(func, IR_ADD, add10, c10, 0, NULL);
 
     int mul2 = ir_new_temp(func);
-    ir_emit(func, IR_MUL, mul2, add10, 2, -1, NULL);
+    ir_emit(func, IR_MUL, mul2, add10, 2, NULL);
 
     ir_emit(func, IR_RET, mul2, -1, -1, NULL);
 

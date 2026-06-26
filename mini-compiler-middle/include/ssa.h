@@ -27,4 +27,11 @@ void     dom_compute_dominance_frontier(const IRBasicBlock blocks[], int num_blo
                                          const int doms[MAX_BLOCKS][MAX_BLOCKS],
                                          int df_out[MAX_BLOCKS][MAX_BLOCKS]);
 
+void     ssa_destroy(IRFunction* func);
+
+void     dom_lt_idoms(const IRBasicBlock blocks[], int num_blocks,
+                      int entry, int idom_out[]);
+void     dom_idoms_to_full(const int idom[], int num_blocks,
+                            int doms_out[MAX_BLOCKS][MAX_BLOCKS]);
+
 #endif

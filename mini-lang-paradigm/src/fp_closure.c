@@ -24,7 +24,6 @@ void fp_closure_capture(FPClosure* cl, int index, void* value) {
 
 void* fp_apply(FPClosure* cl, void** args) {
     void* combined[FP_MAX_ARGS + FP_MAX_CAPTURED];
-    int total_env = cl->env_count + cl->arity;
     for (int i = 0; i < cl->env_count; i++) {
         combined[i] = cl->captured_env[i];
     }
@@ -39,17 +38,7 @@ FPClosure* fp_curry(FPFnPtr fn, int arity) {
         FPClosure* cl = fp_closure_create(fn, 1, 0);
         return cl;
     }
-    typedef struct {
-        FPFnPtr orig_fn;
-        int     orig_arity;
-        int     captured_count;
-        void*   captured[FP_MAX_CAPTURED];
-    } CurryState;
-    FPFnPtr curry_helper = (FPFnPtr)NULL;
-    void* built_helper = NULL;
     FPClosure* result = fp_closure_create(fn, arity, 0);
-    (void)curry_helper;
-    (void)built_helper;
     return result;
 }
 

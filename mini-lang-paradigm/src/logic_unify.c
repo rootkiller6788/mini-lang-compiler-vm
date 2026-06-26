@@ -4,8 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int var_counter = 0;
-
 Term* term_create_var(int id) {
     Term* t = malloc(sizeof(Term));
     if (!t) return NULL;
